@@ -1,0 +1,102 @@
+import telebot
+import os
+import json
+import openai
+from datetime import datetime
+
+# ======== Environment Variables ========
+TOKEN = os.getenv("TOKEN")             # Telegram bot token
+OPENAI_KEY = os.getenv("OPENAI_KEY")   # OpenAI API key
+openai.api_key = OPENAI_KEY
+
+bot = telebot.TeleBot(TOKEN)
+
+# ======== File to track progress ========
+PROGRESS_FILE = "progress.json"
+
+# Initialize progress file if not exists
+if not os.path.exists(PROGRESS_FILE):
+    with open(PROGRESS_FILE, "w") as f:
+        json.dump({}, f)
+
+# ======== Step 1 Daily Plan ========
+DAILY_PLAN = [
+    "1️⃣ Cell Injury",
+    "2️⃣ Necrosis & Apoptosis",
+    "3️⃣ Inflammation",
+    "4️⃣ Healing & Repair",
+    "5️⃣ 10 MCQs on today's topics"
+]
+
+# ======== Helper Functions ========
+def load_progress():
+    with open(PROGRESS_FILE, "r") as f:
+        return json.load(f)
+
+def save_progress(data):
+    with open(PROGRESS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+def generate_ai_answer(question):
+    response = openai.Completion.create(
+        engine="text-davinci-003",
+        prompt=f"اشرح هذا السؤال Step 1 بطريقة مبسطة وعمليّة: {question}",
+        max_tokens=300
+    )
+    return response.choices[0].text.strip()
+
+# ======== Bot Commands ========
+@bot.message_handler(commands=['start'])
+def send_welcome(message):
+    bot.reply_to(message,
+        "🔥 USMLE MODE ACTIVATED 🔥\n"
+        "اكتب /plan لرؤية خطة اليوم\n"
+        "اكتب /done بعد إتمام أي خطوة\n"
+        "اكتب /ask متبوع بالسؤال للحصول على شرح ذكي"
+    )
+
+@bot.message_handler(commands=['plan'])
+def send_plan(message):
+    plan_text = "📚 خطة اليوم:\n" + "\n".join(DAILY_PLAN)
+    bot.reply_to(message, plan_text)
+
+@bot.message_handler(commands=['done'])
+def mark_done(message):
+    data = load_progress()
+    today = datetime.now().strftime("%Y-%m-%d")
+    data.setdefault(today, [])
+    last_step = message.text.replace("/done", "").strip()
+    if last_step:
+        data[today].append(last_step)
+    else:
+        data[today].append("Completed step")
+    save_progress(data)
+    bot.reply_to(message, "✅ تم تسجيل التقدم لهذا اليوم")
+
+@bot.message_handler(commands=['progress'])
+def show_progress(message):
+    data = load_progress()
+    today = datetime.now().strftime("%Y-%m-%d")
+    today_progress = data.get(today, [])
+    if today_progress:
+        bot.reply_to(message, f"📈 تقدمك اليوم ({today}):\n" + "\n".join(today_progress))
+    else:
+        bot.reply_to(message, "لم يتم تسجيل أي تقدم اليوم بعد")
+
+@bot.message_handler(commands=['ask'])
+def ask_ai(message):
+    question = message.text.replace("/ask","").strip()
+    if not question:
+        bot.reply_to(message, "اكتب السؤال بعد /ask")
+        return
+    bot.reply_to(message, "⌛ جاري البحث عن الإجابة …")
+    answer = generate_ai_answer(question)
+    bot.reply_to(message, answer)
+
+# ======== Echo for unknown messages ========
+@bot.message_handler(func=lambda m: True)
+def echo_all(message):
+    bot.reply_to(message, "استخدم /plan لرؤية خطة اليوم، /ask للسؤال الذكي، /done لتسجيل التقدم")
+
+# ======== Run Bot ========
+bot.infinity_polling()
